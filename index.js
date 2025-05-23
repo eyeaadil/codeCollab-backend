@@ -10,7 +10,7 @@ import folderRoutes from './routes/folderRoutes.js';
 import fileRoutes from './routes/fileRoutes.js';
 import bodyParser from 'body-parser';
 import inviteRoutes from './routes/inviteRoutes.js';
-
+import collaborateRoutes from './routes/collaborateRoutes.js';
 // Import the WebSocket server to ensure it starts
 import './sockets/fileWebSocket.js';
 
@@ -73,9 +73,10 @@ app.get('/health', (req, res) => {
 
 // Use Routes
 app.use('/api/auth', authRoutes);
-app.use('/api/collaborate', inviteRoutes);
+// app.use('/api/collaborate', inviteRoutes);
 app.use('/api/folders', folderRoutes);
 app.use('/api/files', fileRoutes);
+app.use('/api/collaborate', collaborateRoutes);
 
 // Root endpoint
 app.get('/', (req, res) => {

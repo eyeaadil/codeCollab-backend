@@ -17,6 +17,8 @@ function generateTokens(user) {
 
 // SetAuthCookies sets secure cookies for access and refresh tokens
 function setAuthCookies(res, accessToken, refreshToken) {
+    console.log("Acessssss",accessToken)
+    console.log("Responseeeeeeeeee",res)
     res.cookie('access_token', accessToken, { httpOnly: true, secure: true,sameSite:'strict',path:'/', maxAge: 86400 * 1000 }); // 1 day
     res.cookie('refresh_token', refreshToken, { httpOnly: true, secure: true, maxAge: 604800 * 1000 }); // 7 days
 }
