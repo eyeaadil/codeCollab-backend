@@ -7,8 +7,9 @@ import { sendInviteEmail } from '../utils/email-utils.js';
 // Create a new room
 export const createRoom = async (req, res) => {
   const { fileName } = req.body;
+  console.log(fileName)
   const user = req.user; // From protect middleware
-
+  console.log(user)
   if (!fileName) {
     return res.status(400).json({ message: 'File name is required' });
   }
@@ -19,6 +20,7 @@ export const createRoom = async (req, res) => {
       roomId,
       creator: user._id,
       fileName,
+      name: fileName,
       invitedUsers: []
     });
     await room.save();

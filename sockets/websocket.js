@@ -1,141 +1,194 @@
 // websocket.js
-import { WebSocketServer } from "ws";
+import { WebSocketServer, WebSocket } from 'ws';
+import mongoose from 'mongoose';
+import File from '../models/fileModel.js';
+import Room from '../models/roomModel.js';
+import { parseToken } from '../utils/token-utils.js';
+import url from 'url';
 
-const rooms = new Map(); // roomId -> { content, clients, invitedEmails }
+const wss = new WebSocketServer({ port: 4000, perMessageDeflate: false, maxPayload: 100 * 1024 * 1024 });
 
-function setupWebSocket(server) {
-  const wss = new WebSocketServer({ server });
+const fileSubscriptions = new Map();
+const clientSubscriptions = new Map();
+const clientInfo = new Map();
 
-  wss.on("connection", (ws) => {
-    console.log('Backend: New WebSocket client connected');
-
-    ws.on("message", (message) => {
-      try {
-        const data = JSON.parse(message.toString());
-        console.log(`Backend: Received message: ${JSON.stringify(data)}`);
-
-        if (!data || typeof data !== 'object') {
-          console.error('Backend: Received invalid message data:', data);
-          return; // Ignore invalid messages
-        }
-
-        console.log(`Backend: Message type: ${data.type}`);
-
-        if (data.type === "join") {
-          console.log(`Backend: Handling join message for roomId: ${data.roomId}`);
-          const room = rooms.get(data.roomId) || {
-            content: "// Start coding here...",
-            clients: new Set(),
-            invitedEmails: new Set()
-          };
-          room.clients.add(ws);
-          rooms.set(data.roomId, room);
-          console.log(`Backend: Client joined room: ${data.roomId}. Current clients in room: ${room.clients.size}`);
-          // Send initial content to the joining client
-          ws.send(
-            JSON.stringify({
-              type: "update",
-              roomId: data.roomId,
-              content: room.content,
-            })
-          );
-          broadcastCollaborators(data.roomId);
-
-        } else if (data.type === "getContent") {
-           console.log(`Backend: Handling getContent message for roomId: ${data.roomId}`);
-          const room = rooms.get(data.roomId);
-          if (room) {
-            ws.send(
-              JSON.stringify({
-                type: "update",
-                roomId: data.roomId,
-                content: room.content,
-              })
-            );
-          }
-        } else if (data.type === "invite") {
-           console.log(`Backend: Handling invite message for roomId: ${data.roomId}, email: ${data.email}`);
-          const room = rooms.get(data.roomId);
-          if (room) {
-            room.invitedEmails.add(data.email);
-            console.log(`Backend: Client invited ${data.email} to room ${data.roomId}`);
-            // Notify all clients about new invite
-            room.clients.forEach(client => {
-              if (client.readyState === WebSocket.OPEN) {
-                client.send(JSON.stringify({ ...data, type: "invite" })); // Send original data including roomId and email
-              }
-            });
-          }
-        } else if (data.type === "update") {
-          console.log(`Backend: Handling update message for roomId: ${data.roomId}`);
-          const room = rooms.get(data.roomId);
-          if (room) {
-            room.content = data.content;
-            console.log(`Backend: Received update for room ${data.roomId}. New content length: ${data.content ? data.content.length : 0}`);
-            room.clients.forEach((client) => {
-              if (client !== ws && client.readyState === WebSocket.OPEN) {
-                client.send(
-                  JSON.stringify({
-                    type: "update",
-                    roomId: data.roomId,
-                    content: data.content,
-                    clientId: data.clientId,
-                  })
-                );
-              }
-            });
-          }
-        } else {
-           console.log(`Backend: Received unknown message type: ${data.type}`);
-        }
-      } catch (error) {
-        console.error('Backend: Error processing message:', error);
-        // Consider closing the connection or sending an error back to the client
-        // ws.close(1008, 'Error processing message');
-      }
-    });
-
-    ws.on("close", (code, reason) => {
-      console.log(`Backend: Client disconnected. Code: ${code}, Reason: ${reason}`);
-      rooms.forEach((room, roomId) => {
-        if (room.clients.has(ws)) {
-          room.clients.delete(ws);
-          console.log(`Backend: Client removed from room: ${roomId}. Remaining clients: ${room.clients.size}`);
-          if (room.clients.size === 0) {
-             rooms.delete(roomId);
-             console.log(`Backend: Room ${roomId} is now empty and deleted.`);
-          }
-          broadcastCollaborators(roomId);
-        } else {
-           // This case should ideally not happen if client was properly tracked
-           console.warn(`Backend: Disconnecting client not found in room ${roomId}'s clients.`);
-        }
-      });
-    });
-
-    ws.on('error', (error) => {
-        console.error('Backend: WebSocket error:', error);
-    });
-  });
+function generateClientId() {
+  return `client-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
 }
 
-function broadcastCollaborators(roomId) {
-  const room = rooms.get(roomId);
-  if (room) {
-    const collaboratorCount = room.clients.size;
-    console.log(`Backend: Broadcasting collaborators for room ${roomId}. Count: ${collaboratorCount}`);
-    room.clients.forEach((client) => {
-      if (client.readyState === WebSocket.OPEN) {
-        client.send(
-          JSON.stringify({
-            type: "collaborators",
-            collaborators: Array.from(room.clients).length,
-            invitedEmails: Array.from(room.invitedEmails)
-          })
-        );
+function heartbeat() {
+  this.isAlive = true;
+}
+
+function log(message, data) {
+  const timestamp = new Date().toISOString();
+  console.log(`[${timestamp}] WS(4000): ${message}`);
+  if (data) console.log(`[${timestamp}] WS(4000): Data:`, JSON.stringify(data, null, 2));
+}
+
+wss.on('connection', async (wsClient, request) => {
+  const clientId = generateClientId();
+  const clientIp = request.socket.remoteAddress;
+
+  // Parse token from query parameters
+  const query = url.parse(request.url, true).query;
+  const token = query.token;
+  let userId;
+
+  try {
+    userId = parseToken(token);
+  } catch (error) {
+    log(`Authentication failed for ${clientId}: ${error.message}`);
+    wsClient.send(JSON.stringify({ type: 'error', message: 'Unauthorized: Invalid token' }));
+    wsClient.close(4001, 'Unauthorized');
+    return;
+  }
+
+  log(`New client: ${clientId} (user: ${userId}) from ${clientIp}`);
+  clientInfo.set(wsClient, { clientId, userId, connectedAt: new Date() });
+  wsClient.isAlive = true;
+  wsClient.on('pong', heartbeat);
+  clientSubscriptions.set(wsClient, new Set());
+
+  wsClient.send(JSON.stringify({ type: 'welcome', clientId, message: 'Connected to WebSocket server' }));
+
+  wsClient.on('message', async (message) => {
+    try {
+      const data = JSON.parse(message.toString());
+      const info = clientInfo.get(wsClient);
+      log(`Received from ${info.clientId}:`, data);
+
+      if (data.type === 'join') await handleJoinFile(wsClient, data, info);
+      else if (data.type === 'update') await handleUpdateFile(wsClient, data, info);
+      else if (data.type === 'getContent') await handleGetContent(wsClient, data, info);
+      else log(`Unknown message type: ${data.type}`);
+    } catch (error) {
+      log(`Error processing message: ${error.message}`);
+      wsClient.send(JSON.stringify({ type: 'error', message: error.message }));
+    }
+  });
+
+  wsClient.on('close', (code, reason) => {
+    const info = clientInfo.get(wsClient);
+    log(`Client disconnected: ${info?.clientId} (code: ${code}, reason: ${reason})`);
+    handleClientDisconnect(wsClient);
+  });
+
+  wsClient.on('error', (error) => {
+    const info = clientInfo.get(wsClient);
+    log(`WebSocket error for ${info?.clientId}: ${error.message}`);
+  });
+});
+
+async function handleJoinFile(wsClient, data, clientInfo) {
+  const { roomId } = data; // Changed from fileName to roomId
+  if (!roomId) {
+    log(`Invalid roomId from ${clientInfo.clientId}`);
+    return wsClient.send(JSON.stringify({ type: 'error', message: 'Invalid roomId' }));
+  }
+
+  // Validate room and user access
+  const room = await Room.findOne({ roomId }).populate('creator invitedUsers');
+  if (!room) {
+    return wsClient.send(JSON.stringify({ type: 'error', message: 'Room not found or expired' }));
+  }
+  if (room.creator._id.toString() !== clientInfo.userId && !room.invitedUsers.some(u => u._id.toString() === clientInfo.userId)) {
+    return wsClient.send(JSON.stringify({ type: 'error', message: 'Unauthorized: Not invited to this room' }));
+  }
+
+  const clientSubs = clientSubscriptions.get(wsClient);
+  clientSubs.add(roomId);
+  if (!fileSubscriptions.has(roomId)) fileSubscriptions.set(roomId, new Set());
+  fileSubscriptions.get(roomId).add(wsClient);
+
+  const subscriberCount = fileSubscriptions.get(roomId).size;
+  log(`Client ${clientInfo.clientId} joined ${roomId}. Subscribers: ${subscriberCount}`);
+
+  const file = await File.findOne({ name: room.fileName });
+  if (!file) {
+    return wsClient.send(JSON.stringify({
+      type: 'error',
+      message: 'File not found. Please create the file first through the main application.',
+    }));
+  }
+
+  wsClient.send(JSON.stringify({ type: 'update', roomId, content: file.content, isInitialLoad: true }));
+  wsClient.send(JSON.stringify({ type: 'joinConfirm', roomId, subscriberCount }));
+}
+
+async function handleUpdateFile(wsClient, data, clientInfo) {
+  const { roomId, content } = data; // Changed from fileName to roomId
+  if (!roomId || content === undefined) {
+    log(`Invalid update from ${clientInfo.clientId}`);
+    return wsClient.send(JSON.stringify({ type: 'error', message: 'Invalid roomId or content' }));
+  }
+
+  const room = await Room.findOne({ roomId });
+  if (!room) {
+    return wsClient.send(JSON.stringify({ type: 'error', message: 'Room not found or expired' }));
+  }
+
+  log(`Update for ${roomId} from ${clientInfo.clientId} (${content.length} chars)`);
+  await File.findOneAndUpdate({ name: room.fileName }, { content, lastModified: Date.now() }, { upsert: true });
+
+  if (fileSubscriptions.has(roomId)) {
+    const subscribers = fileSubscriptions.get(roomId);
+    let broadcastCount = 0;
+    subscribers.forEach((client) => {
+      if (client !== wsClient && client.readyState === WebSocket.OPEN) {
+        client.send(JSON.stringify({ type: 'update', roomId, content, senderId: clientInfo.clientId, timestamp: Date.now() }));
+        broadcastCount++;
       }
     });
+    log(`Broadcasted update to ${broadcastCount} subscribers`);
   }
 }
 
-export { setupWebSocket };
+async function handleGetContent(wsClient, data, clientInfo) {
+  const { roomId } = data; // Changed from fileName to roomId
+  const room = await Room.findOne({ roomId });
+  if (!room) {
+    return wsClient.send(JSON.stringify({ type: 'error', message: 'Room not found or expired' }));
+  }
+
+  log(`Content request for ${roomId} from ${clientInfo.clientId}`);
+  const file = await File.findOne({ name: room.fileName });
+  wsClient.send(JSON.stringify({ type: 'update', roomId, content: file?.content || '', isResponse: true }));
+}
+
+function handleClientDisconnect(wsClient) {
+  const info = clientInfo.get(wsClient);
+  const clientSubs = clientSubscriptions.get(wsClient) || new Set();
+  clientSubs.forEach(roomId => {
+    if (fileSubscriptions.has(roomId)) {
+      fileSubscriptions.get(roomId).delete(wsClient);
+      if (fileSubscriptions.get(roomId).size === 0) fileSubscriptions.delete(roomId);
+    }
+  });
+  clientSubscriptions.delete(wsClient);
+  clientInfo.delete(wsClient);
+}
+
+const interval = setInterval(() => {
+  wss.clients.forEach(client => {
+    if (client.isAlive === false) {
+      const info = clientInfo.get(client);
+      log(`Terminating dead connection: ${info?.clientId}`);
+      handleClientDisconnect(client);
+      return client.terminate();
+    }
+    client.isAlive = false;
+    client.ping();
+  });
+}, 30000);
+
+wss.on('close', () => {
+  clearInterval(interval);
+  log('WebSocket server closed');
+});
+
+setInterval(() => {
+  log(`Stats: ${wss.clients.size} clients, ${fileSubscriptions.size} active subscriptions`);
+}, 60000);
+
+log('WebSocket server started on port 4000');

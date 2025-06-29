@@ -14,6 +14,6 @@ router.post('/collaborate/send', sendCollaborationRequest);
 router.post('/collaborate/accept', acceptCollaborationRequest);
 
 // Route to send room-specific collaboration invite
-router.post('/invite', sendRoomInvite);
+// router.post('/invite', sendRoomInvite);
 
 export default router;

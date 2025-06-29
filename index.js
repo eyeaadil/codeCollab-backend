@@ -12,7 +12,7 @@ import bodyParser from 'body-parser';
 import inviteRoutes from './routes/inviteRoutes.js';
 import collaborateRoutes from './routes/collaborateRoutes.js';
 // Import the WebSocket server to ensure it starts
-import './sockets/fileWebSocket.js';
+import './sockets/websocket.js';
 
 dotenv.config();
 
