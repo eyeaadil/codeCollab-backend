@@ -5,11 +5,18 @@ const transporter = nodemailer.createTransport({
   service: 'gmail',
   auth: {
     user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS,
+    pass: process.env.EMAIL_PASSWORD,
   },
 });
 
+console.log("Nodemailer User:", process.env.EMAIL_USER);
+console.log("Nodemailer Pass (first 3 chars):", process.env.EMAIL_PASS ? process.env.EMAIL_PASS.substring(0, 3) + '...' : 'not set');
+
 export const sendInviteEmail = async ({ to, senderName, inviteLink }) => {
+  console.log("Sending invite email to:", to);
+  console.log("Nodemailer User:", process.env.EMAIL_USER);
+console.log("Nodemailer Pass (first 3 chars):", process.env.EMAIL_PASSWORD )
+
   const mailOptions = {
     from: process.env.EMAIL_USER,
     to,

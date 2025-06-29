@@ -9,7 +9,7 @@ import collaborationRoutes from './routes/collaborationRoutes.js';
 import folderRoutes from './routes/folderRoutes.js';
 import fileRoutes from './routes/fileRoutes.js';
 import bodyParser from 'body-parser';
-import inviteRoutes from './routes/inviteRoutes.js';
+// import inviteRoutes from './routes/inviteRoutes.js';
 import collaborateRoutes from './routes/collaborateRoutes.js';
 // Import the WebSocket server to ensure it starts
 import './sockets/websocket.js';

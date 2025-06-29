@@ -6,21 +6,25 @@ import { sendInviteEmail } from '../utils/email-utils.js';
 
 // Create a new room
 export const createRoom = async (req, res) => {
-  const { fileName } = req.body;
-  console.log(fileName)
+  const { roomId, name } = req.body; // Expect roomId and name from frontend
+  console.log(roomId, name)
   const user = req.user; // From protect middleware
   console.log(user)
-  if (!fileName) {
-    return res.status(400).json({ message: 'File name is required' });
+  if (!roomId || !name) {
+    return res.status(400).json({ message: 'Room ID and name are required' });
   }
 
   try {
-    const roomId = uuidv4();
+    // Check if a room with the given roomId already exists
+    const existingRoom = await Room.findOne({ roomId });
+    if (existingRoom) {
+      return res.status(409).json({ message: 'Room ID already exists. Please choose a different one.' });
+    }
+
     const room = new Room({
       roomId,
       creator: user._id,
-      fileName,
-      name: fileName,
+      name, // Use the provided name for the room
       invitedUsers: []
     });
     await room.save();
@@ -35,10 +39,12 @@ export const createRoom = async (req, res) => {
 // Invite user to a room
 export const inviteToRoom = async (req, res) => {
   const { receiverEmail, roomId } = req.body;
+  console.log(receiverEmail, roomId)
   const sender = req.user;
 
   try {
     const room = await Room.findOne({ roomId });
+    console.log("room", room)
     if (!room) {
       return res.status(404).json({ message: 'Room not found' });
     }
@@ -47,17 +53,21 @@ export const inviteToRoom = async (req, res) => {
     }
 
     const receiver = await User.findOne({ email: receiverEmail });
+    console.log("receiver", receiver)
     const inviteLink = `${process.env.FRONTEND_URL}/join-room?roomId=${roomId}`;
-
+    console.log("inviteLink", inviteLink)
     if (!receiver) {
       // Send invite with signup link including roomId
+      console.log("sending invite")
       await sendInviteEmail({
         to: receiverEmail,
         senderName: sender.name,
         inviteLink,
       });
+      console.log("invite sent")
     } else {
       // Add user to invitedUsers
+      console.log("room.invitedUsers", room.invitedUsers)
       if (!room.invitedUsers.includes(receiver._id)) {
         room.invitedUsers.push(receiver._id);
         await room.save();

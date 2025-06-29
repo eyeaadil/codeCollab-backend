@@ -1,7 +1,6 @@
 // websocket.js
 import { WebSocketServer, WebSocket } from 'ws';
 import mongoose from 'mongoose';
-import File from '../models/fileModel.js';
 import Room from '../models/roomModel.js';
 import { parseToken } from '../utils/token-utils.js';
 import url from 'url';
@@ -104,15 +103,8 @@ async function handleJoinFile(wsClient, data, clientInfo) {
   const subscriberCount = fileSubscriptions.get(roomId).size;
   log(`Client ${clientInfo.clientId} joined ${roomId}. Subscribers: ${subscriberCount}`);
 
-  const file = await File.findOne({ name: room.fileName });
-  if (!file) {
-    return wsClient.send(JSON.stringify({
-      type: 'error',
-      message: 'File not found. Please create the file first through the main application.',
-    }));
-  }
-
-  wsClient.send(JSON.stringify({ type: 'update', roomId, content: file.content, isInitialLoad: true }));
+  // No longer checking for separate File model, content is stored in Room
+  wsClient.send(JSON.stringify({ type: 'update', roomId, content: room.content, isInitialLoad: true }));
   wsClient.send(JSON.stringify({ type: 'joinConfirm', roomId, subscriberCount }));
 }
 
@@ -129,7 +121,8 @@ async function handleUpdateFile(wsClient, data, clientInfo) {
   }
 
   log(`Update for ${roomId} from ${clientInfo.clientId} (${content.length} chars)`);
-  await File.findOneAndUpdate({ name: room.fileName }, { content, lastModified: Date.now() }, { upsert: true });
+  // Update content directly in the Room model
+  await Room.findOneAndUpdate({ roomId }, { content, lastModified: Date.now() }, { new: true });
 
   if (fileSubscriptions.has(roomId)) {
     const subscribers = fileSubscriptions.get(roomId);
@@ -152,8 +145,8 @@ async function handleGetContent(wsClient, data, clientInfo) {
   }
 
   log(`Content request for ${roomId} from ${clientInfo.clientId}`);
-  const file = await File.findOne({ name: room.fileName });
-  wsClient.send(JSON.stringify({ type: 'update', roomId, content: file?.content || '', isResponse: true }));
+  // Get content directly from the Room model
+  wsClient.send(JSON.stringify({ type: 'update', roomId, content: room.content || '', isResponse: true }));
 }
 
 function handleClientDisconnect(wsClient) {
