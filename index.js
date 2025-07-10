@@ -5,7 +5,7 @@ import dotenv from 'dotenv';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import authRoutes from './routes/authRoutes.js';
-import collaborationRoutes from './routes/collaborationRoutes.js';
+// import collaborationRoutes from './routes/collaborationRoutes.js';
 import folderRoutes from './routes/folderRoutes.js';
 import fileRoutes from './routes/fileRoutes.js';
 import bodyParser from 'body-parser';
