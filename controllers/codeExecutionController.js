@@ -16,7 +16,12 @@ const DOCKER_IMAGES = {
 };
 
 export const runCode = async (req, res) => {
+  console.log('Received code execution request.');
+  console.log("runCodewwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww");
   const { language, code, input } = req.body;
+  console.log("language", language);
+  console.log("code", code);
+  console.log("input", input);  
 
   if (!language || !code) {
     return res.status(400).json({ success: false, message: 'Language and code are required.' });
@@ -24,11 +29,14 @@ export const runCode = async (req, res) => {
 
   let fileExtension;
   let tempFileName = `temp_code_${Date.now()}`;
-  const tempDirPath = path.join(__dirname, '..\/temp');
+  const tempDirPath = path.join(__dirname, '../runner_temp'); 
   const filePathOnHost = path.join(tempDirPath, tempFileName);
   let commandToExecuteInContainer;
   let argsToExecuteInContainer = [];
-  let postCompileCommand = null; // For languages that compile first (Java, C, C++)
+  let postCompileCommand = null;
+
+  console.log('Debug: tempDirPath =', tempDirPath);
+  console.log('Debug: filePathOnHost =', filePathOnHost);
 
   // Ensure temp directory exists
   await fs.mkdir(tempDirPath, { recursive: true });
@@ -45,24 +53,21 @@ export const runCode = async (req, res) => {
       commandToExecuteInContainer = 'python3';
       argsToExecuteInContainer.push(`/app/${tempFileName}.py`);
       break;
-    case 'java':
-      fileExtension = 'java';
-      // Java requires compilation first, then running the class file
-      const className = 'Main'; // Assuming the class is named Main
-      commandToExecuteInContainer = 'javac';
-      argsToExecuteInContainer.push(`/app/${tempFileName}.java`);
-      postCompileCommand = { command: 'java', args: [`/app/${className}`] };
-      break;
+      case 'java':
+        fileExtension = 'java';
+        tempFileName = 'Main'; // ✅ Ensure file will be called Main.java
+        commandToExecuteInContainer = 'javac';
+        argsToExecuteInContainer.push(`/app/Main.java`);
+        postCompileCommand = { command: 'java', args: ['Main'] };
+        break;
     case 'cpp':
       fileExtension = 'cpp';
-      // C++ requires compilation first, then running the executable
       commandToExecuteInContainer = 'g++';
-      argsToExecuteInContainer.push(`/app/${tempFileName}.cpp`, '-o', `/app/${tempFileName}`);
-      postCompileCommand = { command: `/app/${tempFileName}`, args: [] };
+      argsToExecuteInContainer.push(`/app/${tempFileName}.cpp`, '-o', `/app/a.out`);
+      postCompileCommand = { command: `/app/a.out`, args: [] };
       break;
     case 'c':
       fileExtension = 'c';
-      // C requires compilation first, then running the executable
       commandToExecuteInContainer = 'gcc';
       argsToExecuteInContainer.push(`/app/${tempFileName}.c`, '-o', `/app/${tempFileName}`);
       postCompileCommand = { command: `/app/${tempFileName}`, args: [] };
@@ -74,6 +79,9 @@ export const runCode = async (req, res) => {
   const fullFilePathOnHost = `${filePathOnHost}.${fileExtension}`;
   const filePathInContainer = `/app/${tempFileName}.${fileExtension}`;
 
+  console.log("fullFilePathOnHost", fullFilePathOnHost);
+  console.log("filePathInContainer", filePathInContainer);
+
   try {
     await fs.writeFile(fullFilePathOnHost, code);
 
@@ -81,7 +89,7 @@ export const runCode = async (req, res) => {
     if (!dockerImage) {
       throw new Error(`Docker image not defined for language: ${language}`);
     }
-
+    console.log("dockerImage", dockerImage);
     let output = '';
     let errorOutput = '';
     let exitCode = 0;
@@ -89,29 +97,29 @@ export const runCode = async (req, res) => {
     const runDockerCommand = async (cmd, cmdArgs, mounts, containerCwd = '/app') => {
       const dockerArgs = [
         'run',
-        '--rm', // Automatically remove the container when it exits
-        '--network=none', // Disable network access for security
-        '--memory=128m', // Limit memory to 128MB
-        '--cpus=0.5', // Limit CPU usage to half a core
-        '--pids-limit=64', // Limit the number of processes
-        '--cap-drop=ALL', // Drop all capabilities
-        '--security-opt=no-new-privileges', // Prevent privilege escalation
-        ...mounts.map(mount => `-v ${mount.hostPath}:${mount.containerPath}`),
+        '--rm',
+        // '--network=none',
+        '--memory=128m',
+        '--cpus=0.5',
+        '--pids-limit=64',
+        '--cap-drop=ALL',
+        '--security-opt=no-new-privileges',
+        ...mounts.flatMap(mount => ['-v', `${mount.hostPath}:${mount.containerPath}`]),
         dockerImage,
         cmd,
         ...cmdArgs,
       ];
-
+      console.log("dockerArgs", dockerArgs);
       return new Promise((resolve, reject) => {
         const childProcess = spawn('docker', dockerArgs, { cwd: tempDirPath });
-
+        console.log("childProcess", childProcess);
         let stdout = '';
         let stderr = '';
 
         let timeoutId = setTimeout(() => {
-          childProcess.kill('SIGKILL'); // Force kill if timeout
+          childProcess.kill('SIGKILL');
           reject(new Error('Execution timed out.'));
-        }, 5000); // 5 seconds timeout
+        }, 5000);
 
         childProcess.stdout.on('data', (data) => { stdout += data.toString(); });
         childProcess.stderr.on('data', (data) => { stderr += data.toString(); });
@@ -133,30 +141,29 @@ export const runCode = async (req, res) => {
       });
     };
 
-    // Mount the temp file into the container
+    // Mount the temp file and directory for compiled languages
     const mounts = [{ hostPath: fullFilePathOnHost, containerPath: filePathInContainer }];
-    if (language === 'java' || language === 'cpp' || language === 'c') {
-      // For compiled languages, we also need to mount the output executable/class file path
-      mounts.push({ hostPath: filePathOnHost, containerPath: `/app/${tempFileName}` });
+    if (language === 'cpp' || language === 'c' || language === 'java') {
+      mounts.push({ hostPath: tempDirPath, containerPath: '/app' });
     }
+    console.log("mounts", mounts);
 
     let result;
     if (postCompileCommand) {
-      // Step 1: Compile
       const compileResult = await runDockerCommand(commandToExecuteInContainer, argsToExecuteInContainer, mounts);
+      console.log('Compilation result:', compileResult);
       if (compileResult.exitCode !== 0) {
         result = { output: '', errorOutput: compileResult.stderr, exitCode: compileResult.exitCode };
       } else {
-        // Step 2: Run after successful compilation
         result = await runDockerCommand(postCompileCommand.command, postCompileCommand.args, mounts);
+        console.log("result", result);
       }
     } else {
-      // Run directly for interpreted languages
       result = await runDockerCommand(commandToExecuteInContainer, argsToExecuteInContainer, mounts);
     }
-
-    output = result.output;
-    errorOutput = result.errorOutput;
+    console.log("result", result);
+    output = result.stdout;
+    errorOutput = result.stderr;
     exitCode = result.exitCode;
 
     res.status(200).json({ success: true, output, error: errorOutput, exitCode });
@@ -167,10 +174,15 @@ export const runCode = async (req, res) => {
     // Clean up temporary files on the host
     try {
       await fs.unlink(fullFilePathOnHost);
-      // For compiled languages, the executable/class file is inside the container and removed with --rm
-      // No need to explicitly unlink filePathOnHost for compiled output, as it's the directory
+      if (language === 'cpp') {
+        await fs.unlink(path.join(tempDirPath, 'a.out')).catch(() => {});
+      } else if (language === 'c') {
+        await fs.unlink(path.join(tempDirPath, tempFileName)).catch(() => {});
+      } else if (language === 'java') {
+        await fs.unlink(path.join(tempDirPath, 'Main.class')).catch(() => {});
+      }
     } catch (cleanupError) {
       console.error('Error cleaning up temp files:', cleanupError);
     }
   }
-}; 
+};

@@ -11,6 +11,8 @@ import fileRoutes from './routes/fileRoutes.js';
 import bodyParser from 'body-parser';
 // import inviteRoutes from './routes/inviteRoutes.js';
 import collaborateRoutes from './routes/collaborateRoutes.js';
+import codeExecutionRoutes from './routes/codeExecutionRoutes.js';
+
 // Import the WebSocket server to ensure it starts
 import './sockets/websocket.js';
 
@@ -77,7 +79,8 @@ app.use('/api/auth', authRoutes);
 app.use('/api/folders', folderRoutes);
 app.use('/api/files', fileRoutes);
 app.use('/api/collaborate', collaborateRoutes);
-
+app.use('/api/execute-code', codeExecutionRoutes);
+console.log("codeExecutionRoutes");
 // Root endpoint
 app.get('/', (req, res) => {
   res.json({ 
@@ -87,7 +90,8 @@ app.get('/', (req, res) => {
       auth: '/api/auth',
       collaborate: '/api/collaborate',
       folders: '/api/folders',
-      files: '/api/files'
+      files: '/api/files',
+      executeCode: '/api/executeCode'
     },
     websocket: 'ws://localhost:4000'
   });
