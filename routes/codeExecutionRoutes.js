@@ -1,5 +1,6 @@
 import express from 'express';
-import { runCode } from '../controllers/codeExecutionController.js';
+// import { runCode } from '../controllers/codeExecutionController.js';
+import { runCode } from '../controllers/codeExecution.js';
 import {isAuthenticated  } from '../middlewares/authMiddleware.js';
 
 const router = express.Router();
