@@ -5,22 +5,23 @@ import dotenv from 'dotenv';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import authRoutes from './routes/authRoutes.js';
-// import collaborationRoutes from './routes/collaborationRoutes.js';
 import folderRoutes from './routes/folderRoutes.js';
 import fileRoutes from './routes/fileRoutes.js';
 import bodyParser from 'body-parser';
-// import inviteRoutes from './routes/inviteRoutes.js';
 import collaborateRoutes from './routes/collaborateRoutes.js';
 import codeExecutionRoutes from './routes/codeExecutionRoutes.js';
 
-// Import the WebSocket server to ensure it starts
-import './sockets/websocket.js';
+// Import the WebSocket initialization function
+import { initWebSocket } from './sockets/websocket.js';
 
 dotenv.config();
 
 // Initialize Express app and HTTP server
 const app = express();
 const server = createServer(app);
+
+// Initialize WebSocket server with the same HTTP server
+const wss = initWebSocket(server);
 
 // Connect to MongoDB
 connectDB();
@@ -30,30 +31,27 @@ app.use(bodyParser.urlencoded({ extended: true }));
 app.use(express.json({ limit: '10mb' })); // Increase limit for large code files
 app.use(cookieParser());
 
-// Enhanced CORS configuration
+// CORS configuration - dynamically set based on environment
+const allowedOrigins = process.env.NODE_ENV === 'production' 
+  ? [process.env.FRONTEND_URL, 'https://codecollab-frontend.onrender.com'] 
+  : ['http://localhost:8080', 'http://localhost:3000', 'http://localhost:5173'];
+
 app.use(cors({
-  origin: ['http://localhost:8080', 'http://localhost:3000'], // Add common React dev server ports
+  origin: function(origin, callback) {
+    // Allow requests with no origin (like mobile apps, curl requests)
+    if (!origin) return callback(null, true);
+    
+    if (allowedOrigins.indexOf(origin) === -1) {
+      const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
+      return callback(new Error(msg), false);
+    }
+    return callback(null, true);
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
   exposedHeaders: ['Content-Length', 'X-Foo', 'X-Bar']
 }));
-
-// Additional CORS headers middleware
-app.use((req, res, next) => {
-  res.header('Access-Control-Allow-Origin', req.headers.origin || 'http://localhost:8080');
-  res.header('Access-Control-Allow-Credentials', 'true');
-  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
-  
-  // Handle preflight requests
-  if (req.method === 'OPTIONS') {
-    res.status(200).end();
-    return;
-  }
-  
-  next();
-});
 
 // Request logging middleware
 app.use((req, res, next) => {
@@ -68,19 +66,18 @@ app.get('/health', (req, res) => {
     timestamp: new Date().toISOString(),
     services: {
       express: 'running',
-      websocket: 'running on port 4000'
+      websocket: 'running on same port'
     }
   });
 });
 
 // Use Routes
 app.use('/api/auth', authRoutes);
-// app.use('/api/collaborate', inviteRoutes);
 app.use('/api/folders', folderRoutes);
 app.use('/api/files', fileRoutes);
 app.use('/api/collaborate', collaborateRoutes);
 app.use('/api/execute-code', codeExecutionRoutes);
-console.log("codeExecutionRoutes");
+
 // Root endpoint
 app.get('/', (req, res) => {
   res.json({ 
@@ -91,9 +88,9 @@ app.get('/', (req, res) => {
       collaborate: '/api/collaborate',
       folders: '/api/folders',
       files: '/api/files',
-      executeCode: '/api/executeCode'
+      executeCode: '/api/execute-code'
     },
-    websocket: 'ws://localhost:4000'
+    websocket: `ws://${req.headers.host}/ws`
   });
 });
 
@@ -117,9 +114,9 @@ app.use('*', (req, res) => {
 // Start Express Server
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => {
-  console.log(`🚀 Express server running on port ${PORT}`);
-  console.log(`📡 WebSocket server running on port 4000`);
-  console.log(`🌐 CORS enabled for: http://localhost:8080, http://localhost:3000`);
+  console.log(`🚀 Server running on port ${PORT}`);
+  console.log(`📡 WebSocket server running on same port (path: /ws)`);
+  console.log(`🌐 CORS enabled for: ${allowedOrigins.join(', ')}`);
   console.log(`📊 Health check available at: http://localhost:${PORT}/health`);
 });
 
@@ -127,7 +124,7 @@ server.listen(PORT, () => {
 process.on('SIGTERM', () => {
   console.log('SIGTERM received, shutting down gracefully');
   server.close(() => {
-    console.log('Express server closed');
+    console.log('Server closed');
     process.exit(0);
   });
 });
@@ -135,7 +132,7 @@ process.on('SIGTERM', () => {
 process.on('SIGINT', () => {
   console.log('SIGINT received, shutting down gracefully');
   server.close(() => {
-    console.log('Express server closed');
+    console.log('Server closed');
     process.exit(0);
   });
 });
