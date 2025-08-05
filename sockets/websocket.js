@@ -73,6 +73,7 @@ export function initWebSocket(server) {
         else if (data.type === 'execution_start') await handleExecutionStart(wsClient, data, info);
         else if (data.type === 'execution_result') await handleExecutionResult(wsClient, data, info);
         else if (data.type === 'language_change') await handleLanguageChange(wsClient, data, info);
+        else if (data.type === 'input_change') await handleInputChange(wsClient, data, info);
         else log(`Unknown message type: ${data.type}`);
       } catch (error) {
         log(`Error processing message: ${error.message}`);
@@ -213,6 +214,23 @@ export function initWebSocket(server) {
         }
       });
       log(`Broadcasted language_change for ${roomId} to ${language} from ${clientInfo.clientId}`);
+    }
+  }
+
+  async function handleInputChange(wsClient, data, clientInfo) {
+    const { roomId, input } = data;
+    if (!roomId || input === undefined) {
+      log(`Invalid roomId or input for input_change from ${clientInfo.clientId}`);
+      return;
+    }
+    if (fileSubscriptions.has(roomId)) {
+      const subscribers = fileSubscriptions.get(roomId);
+      subscribers.forEach((client) => {
+        if (client !== wsClient && client.readyState === WebSocket.OPEN) {
+          client.send(JSON.stringify({ type: 'input_change', roomId, input }));
+        }
+      });
+      log(`Broadcasted input_change for ${roomId} from ${clientInfo.clientId}`);
     }
   }
 

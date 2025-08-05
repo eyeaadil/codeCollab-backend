@@ -33,7 +33,7 @@ app.use(cookieParser());
 
 // CORS configuration - dynamically set based on environment
 const allowedOrigins = process.env.NODE_ENV === 'production' 
-  ? [process.env.FRONTEND_URL, 'https://codecollab-frontend.onrender.com'] 
+  ? [process.env.FRONTEND_URL, 'https://codecollab-frontend.onrender.com', 'https://code-collab-frontend-theta.vercel.app'] 
   : ['http://localhost:8080', 'http://localhost:3000', 'http://localhost:5173'];
 
 app.use(cors({
