@@ -82,7 +82,7 @@ export const inviteToRoom = async (req, res) => {
     res.status(200).json({ message: `Invite sent to ${receiverEmail}` });
   } catch (error) {
     console.error(error);
-    res.status(500).json({ message: 'Server error' });
+    res.status(500).json({ message: error.message || 'Server error' });
   }
 };
 

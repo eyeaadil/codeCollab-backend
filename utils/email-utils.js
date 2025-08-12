@@ -1,6 +1,10 @@
 // utils/email-utils.js
 import nodemailer from 'nodemailer';
+import dotenv from 'dotenv';
 
+dotenv.config();
+
+console.log("ttttttttttttttttttttttttttt",process.env.EMAIL_USER,process.env.EMAIL_PASSWORD)
 const transporter = nodemailer.createTransport({
   service: 'gmail',
   auth: {
@@ -9,8 +13,16 @@ const transporter = nodemailer.createTransport({
   },
 });
 
+transporter.verify(function (error, success) {
+  if (error) {
+    console.error("SMTP server connection error:", error);
+  } else {
+    console.log("SMTP server is ready to take our messages");
+  }
+});
+
 console.log("Nodemailer User:", process.env.EMAIL_USER);
-console.log("Nodemailer Pass (first 3 chars):", process.env.EMAIL_PASS ? process.env.EMAIL_PASS.substring(0, 3) + '...' : 'not set');
+console.log("Nodemailer Pass (first 3 chars):", process.env.EMAIL_PASSWORD ? process.env.EMAIL_PASSWORD.substring(0, 3) + '...' : 'not set');
 
 export const sendInviteEmail = async ({ to, senderName, inviteLink }) => {
   console.log("Sending invite email to:", to);
@@ -30,4 +42,5 @@ console.log("Nodemailer Pass (first 3 chars):", process.env.EMAIL_PASSWORD )
   };
 
   await transporter.sendMail(mailOptions);
+  console.log("Email sent successfully");
 };
